@@ -5,7 +5,7 @@ from .__grib_parser import parse_grib
 from .__request import (handle_request_status, get_request_status, get_user_requests, submit_request)
 from .__datetime import get_str_date, get_str_datetime
 
-from .__request import check_request_local, check_request_api, check_request_valid_ids, download_request
+from .__request import check_request_local, get_request_local_state, check_request_api, check_request_valid_ids, download_request
 from .__file import generate_path, mkdir, locate
 
 __all__ = [
@@ -29,6 +29,7 @@ __all__ = [
 
     "generate_path",
     "mkdir",
-    "locate"
+    "locate",
+    "get_request_local_state"
 
     ]

@@ -38,8 +38,8 @@
 
 
 
-from scripts.config import (EXTRACT_GRIB_DIR, EXTRACT_META_DIR, STAGED_GRIB_DIR, STAGED_META_DIR,
-        TRANSFORMED_GRIB_DIR, TRANSFORMED_META_DIR, REQUESTS_DIR, EXTRACT_BUCKET, TRANSFORMED_BUCKET,
+from scripts.config import (EXTRACT_GRIB_DIR, STAGED_GRIB_DIR, 
+        TRANSFORMED_GRIB_DIR, REQUESTS_DIR, EXTRACT_BUCKET, TRANSFORMED_BUCKET,
         GET_SCHEDULE, MONTH_DELAY)
 
 
@@ -79,17 +79,17 @@ from shutil import copyfile, copytree, rmtree, move
 from glob import glob
 from dateutil.relativedelta import relativedelta
 
-# ----------------------------------------------------- #
-# * Create Directories
-# ----------------------------------------------------- #
-def create_dirs():
-    for i in [EXTRACT_GRIB_DIR, EXTRACT_META_DIR, STAGED_GRIB_DIR, STAGED_META_DIR,
-        TRANSFORMED_GRIB_DIR, TRANSFORMED_META_DIR, REQUESTS_DIR]:
-        try: 
-            mkdir(i)
-            logging.info('Successfully created directory: %s' % i)
-        except Exception as e:
-            raise Exception(e)
+# # ----------------------------------------------------- #
+# # * Create Directories
+# # ----------------------------------------------------- #
+# def create_dirs():
+#     for i in [EXTRACT_GRIB_DIR, EXTRACT_META_DIR, STAGED_GRIB_DIR, STAGED_META_DIR,
+#         TRANSFORMED_GRIB_DIR, TRANSFORMED_META_DIR, REQUESTS_DIR]:
+#         try: 
+#             mkdir(i)
+#             logging.info('Successfully created directory: %s' % i)
+#         except Exception as e:
+#             raise Exception(e)
 
 # ----------------------------------------------------- #
 # * Create Request
@@ -165,25 +165,30 @@ def write_metadata(params: dict):
     df["variable"] = params["variable"]
     df["params"] = str(params)
     df["get_date"] = datetime.now()
+    df['state'] = 'extract'
     
     # Save dataframe
     try:
-        # CREATE META DATA
-        date = get_str_date()
-        get_path = generate_path(base_path=EXTRACT_META_DIR, variable=params["variable"], str_date=date, mode=4)
-        # get path
-        path = get_path["path"]
-        fn = get_path["fn"]+".csv"
-        dest = get_path["all"]
-        # write data to metadata folder
-        mkdir(path)
-        df.to_csv(dest, index=False)
-        logging.info("  Created metadata in %s" % path)
+        # # CREATE META DATA
+        # date = get_str_date()
+        # get_path = generate_path(base_path=EXTRACT_META_DIR, variable=params["variable"], str_date=date, mode=4)
+        # # get path
+        # path = get_path["path"]
+        # fn = get_path["fn"]+".csv"
+        # dest = get_path["all"]
+        # # write data to metadata folder
+        # mkdir(path)
+        # df.to_csv(dest, index=False)
+        # logging.info("  Created metadata in %s" % path)
 
-        # CREATE REQUEST QUEUE DATA
-        request_id = params["request_id"]
+        # CREATE REQUEST DATA
+        date = get_str_date()
+        get_path = generate_path(base_path=EXTRACT_GRIB_DIR, variable=params["variable"], str_date=date, mode=4)
+        fn = get_path["fn"]+".csv"
+
         path = f"{REQUESTS_DIR}/"
         dest = f"{path}/{fn}.csv"
+
         # write data to request queue folder
         mkdir(path)
         df.to_csv(dest, index=False)
@@ -229,10 +234,3 @@ def get_coverage(date: datetime, span: timedelta) -> dict:
 
     get={"year": year, "month": month, "day": day}
     return get
-
-
-
-
-
-
-

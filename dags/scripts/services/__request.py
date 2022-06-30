@@ -10,6 +10,7 @@ __all__ = ["get_user_requests", "get_request_status", "get_request_result",
 
 from time import sleep
 from glob import glob
+import os
 import logging
 
 from .__key_client import request_keys
@@ -23,7 +24,7 @@ from ..config import REQUESTS_DIR, EXTRACT_GRIB_DIR
 import cdsapi
 import pandas as pd
 
-from .__file import mkdir
+from .__file import mkdir, locate
 
 # ----------------------------------------------------- #
 # * Get User Requests
@@ -61,7 +62,7 @@ def get_request_result(request_id: str) -> dict:
     return result
 
 # ----------------------------------------------------- #
-# * Delete Request --debug
+# * Delete Request --test
 # ----------------------------------------------------- #
 def delete_request(request_id: str) -> dict:
     """Delete a Request
@@ -74,9 +75,12 @@ def delete_request(request_id: str) -> dict:
     return result
 
 # ----------------------------------------------------- #
-# * Handle Requests --debug
+# * Handle Requests 
 # ----------------------------------------------------- #
-def handle_request_status(request_id):
+def handle_request_status(request_id) -> bool:
+    """Handles actions performed on request state
+    
+    """
     # get status
     status=get_request_status(request_id)
 
@@ -162,9 +166,12 @@ def submit_request(dataset: str, params: dict) -> str:
 # https://github.com/ecmwf/cdsapi/issues/25
 # https://stackoverflow.com/questions/16694907/download-large-file-in-python-with-requests
 # ----------------------------------------------------- #
-def download_request(request_id: str, variable:str) -> str:
-    """Download a Finished Request
+def download_request(request_id: str, variable:str, date:str=None) -> str:
+    """Download a completed request
+    
     request_id: str
+    variable: climate variable
+    date: str, date request was created 
     """
 
     # Create client
@@ -188,7 +195,7 @@ def download_request(request_id: str, variable:str) -> str:
     try:
         # Get filename
         ##
-        date = get_str_date()
+        if date is None: date = get_str_date()
         get_path = generate_path(EXTRACT_GRIB_DIR, str_date=date, variable=variable, mode=4)
         
         # path = "{0}/{1}/{1}_{2}.grib".format(EXTRACT_GRIB_DIR, get_str_date(), variable)
@@ -199,12 +206,20 @@ def download_request(request_id: str, variable:str) -> str:
         # Download data to local
         mkdir(path)
         data = c.session.get(location, verify=c.verify).content
+        
+        # Skip existing file
+        if os.path.exists(dest_fn):
+            mes=f"[skip] file: '{dest_fn.split('/')[-1]}' already exists, skipping download.."
+            logging.info(mes)
+            return dest_fn
+        
+        # Write to file
         with open(dest_fn,'wb') as f:
             f.write(data)
         logging.info("  Download Success!: File downloaded to %s" % dest_fn)
         
-        # Return the path
-        return path
+        # Return the destination filename
+        return dest_fn
         
     except Exception as e:
         logging.error(e)
@@ -219,6 +234,28 @@ def check_request_local() -> list:
     """
     get = glob(f"{REQUESTS_DIR}/*.csv")
     return get
+
+# ----------------------------------------------------- #
+# read df, inject filepath
+# ----------------------------------------------------- #
+def read_inject(filepath: str):
+    df = pd.read_csv(filepath).head(1)
+    df['path'] = filepath
+    return df
+
+# ----------------------------------------------------- #
+# * Check local requests state
+# ----------------------------------------------------- #
+def get_request_local_state(state: str='extract') -> list:
+    """
+    Get requests with 'state' == state 
+    return: list, list of paths
+    
+    """
+    ls_local = check_request_local()
+    ls_local_df = pd.concat([read_inject(i) for i in ls_local], axis=0).reset_index()
+    ls_local_df = ls_local_df[ls_local_df.state==state]
+    return ls_local_df.path.tolist()
 
 # ----------------------------------------------------- #
 # * Check api requests
@@ -245,7 +282,7 @@ def check_request_valid_ids(ls_local:list, mode:int=0) -> set:
     logging.info(mes)
 
     # load single row for each csvs, acquire request_ids
-    ls_local_df = pd.concat([pd.read_csv(i).head(1) for i in ls_local], axis=0)
+    ls_local_df = pd.concat([read_inject(i) for i in ls_local], axis=0)
     ls_local_ids = set(ls_local_df.request_id.tolist())
 
     # get api request_ids
