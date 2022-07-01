@@ -21,9 +21,6 @@ SECRET_CLOUD_ACCESS_VERSION="1"
 SECRET_SLACK_WEBHOOK_NAME = "slack-webhook"
 SECRET_SLACK_WEBHOOK_VERSION = "1"
 
-# Google Cloud Home
-GCLOUD_HOME="/home/meteora/google-cloud-sdk/"
-
 # Delete corrupted downloads 
 DELETE_INVALID_DOWNLOAD = True
 # Delete completed download

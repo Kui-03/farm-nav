@@ -9,10 +9,9 @@ import subprocess as sp
 import json
 
 from google.cloud import secretmanager
-from ..config import GCLOUD_HOME
 from ..config import DEFAULT_PROJECT_NAME
 
-os.environ["PATH"] = "%s:%s/bin" % (os.environ["PATH"], GCLOUD_HOME)
+os.environ["PATH"] = "%s:%s/bin" % (os.environ["PATH"], 'opt/google-cloud-sdk')
 
 # ----------------------------------------------------- #
 # * Export Functions
