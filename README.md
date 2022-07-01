@@ -9,7 +9,7 @@ The example highlights the concept of using an EL-T approach via Airflow DAG.
 - Reports errors via Discord Webhook
 - Store and access secrets via Google Cloud Secret Manager
 
-Tasks:
+### Tasks:
 1. **check_request_queue** - This checks local records whether an existing request has been submitted to the API. 
 2. **create_request** - This creates a new data request and submits is to the API.
 3. **pull_request_data** - This pulls a data from the API to check whether the request exists, then uses the information to monitor the status of a request.
@@ -24,7 +24,7 @@ Tasks:
 
 ### Getting Started
 
- 1. [Install the Docker engine](https://docs.docker.com/engine/) and [Google cloud CLI] (https://cloud.google.com/sdk/docs/install)
+ 1. [Install the Docker engine](https://docs.docker.com/engine/) and [Google cloud CLI](https://cloud.google.com/sdk/docs/install)
  2. [Setup Airflow in docker](https://airflow.apache.org/docs/apache-airflow/stable/start/docker.html)
  3. Create Copernicus account and obtain your [CDS API key](https://cds.climate.copernicus.eu/api-how-to) 
  4. Setup a Google Cloud Project.
