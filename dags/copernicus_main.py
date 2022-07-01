@@ -1,32 +1,32 @@
 from datetime import datetime, timedelta
 import logging
 import os
-from time import sleep
 
 from airflow import DAG
 from airflow.decorators import dag, task
 from airflow.operators.python import BranchPythonOperator, PythonOperator
-from airflow.operators.dummy import DummyOperator
-from airflow.operators.bash import BashOperator
 
 from airflow.sensors.python import PythonSensor
 from airflow.models import Variable as var
 
 from scripts.services import (handle_request_status, check_request_local, check_request_valid_ids,
-    download_request as __download_request, get_str_datetime, get_request_local_state
+    download_request as __download_request, get_str_datetime, get_request_local_state,
+    load_to_gcs
     )
 
-from scripts.copernicus import create_request as __create_request
+from scripts.copernicus import create_request as __create_request, delete_dirs
+from scripts.copernicus import create_dirs
 from scripts.staging import verify_grib, moveto_staged
 
 from scripts.message import send_message
-from scripts.services import get_str_date, mkdir, locate
+from scripts.services import get_str_date, complete_request
 
-from scripts.config import DELETE_INVALID_DOWNLOAD
+from scripts.config import (EXTRACT_BUCKET, TRANSFORMED_BUCKET, DELETE_INVALID_DOWNLOAD, 
+    STAGED_GRIB_DIR, TRANSFORMED_GRIB_DIR, CLEAN_DIRECTORIES, 
+    DELETE_COMPLETED_DOWNLOAD)
 
-from scripts.transform import do_transformations
-
-import pandas as pd
+from scripts.transform import main_transform
+from scripts.validate import main_validate
 
 # ================================================= #
 # * Configurations
@@ -58,6 +58,7 @@ with DAG(
     # ------------------------------------------------- #
     def __start():
         """Commencer le dag~ """
+        create_dirs()
         date = get_str_datetime()
         return send_message(f"[start] Started DAG operations at {date}")
     # :: operator variable ::
@@ -72,7 +73,7 @@ with DAG(
     @task(task_id="stop")
     def stop():
         date = date = get_str_datetime()
-        return send_message(f"[finished] Started DAG operations at {date}")
+        return send_message(f"[finished] Completed all DAG operations at {date}")
 
     # ------------------------------------------------- #
     # [branch] CHECK REQUEST QUEUE
@@ -86,7 +87,7 @@ with DAG(
             status: str, the next function to return
         """
         # get list of requests
-        ls = get_request_local_state('extract')
+        ls = check_request_local() #_state('extract')
         
         mes=f"[status] Currently have {len(ls)} request(s) in queue"
         logging.info(mes)
@@ -101,6 +102,7 @@ with DAG(
             ti.xcom_push(key='queue',value=ls)
             ti.xcom_push(key='status',value='pull_request_data')
             return 'pull_request_data'
+
     # ------------------------------------------------- #
     # :: operator variable ::
     var_check_request_queue=BranchPythonOperator(
@@ -114,11 +116,11 @@ with DAG(
     # ------------------------------------------------- #
     @task(task_id='create_request')
     def create_request(ti=None):
-        # return True
+        return True
         """
         Creates and submits data pull request via Copernicus API
         """
-        variable='total_precipitation'
+        variable='soil_temperature_level_2'
 
         date=datetime.now()
         request_params = __create_request(date=date, variable=variable)
@@ -127,7 +129,7 @@ with DAG(
         mes=f"[update] Submitted request for {variable} at {date}, with request_id of {request_id}."
         print(mes)
         send_message(mes)
-        return {'request_id':request_id, 'variable':variable, 'date': date, 'path':path}
+        return {'request_id':request_id, 'variable':variable, 'date': get_str_date(date)}
 
     # ------------------------------------------------- #
     # PULL REQUEST DATA
@@ -149,7 +151,7 @@ with DAG(
         df = df_valid.head(1)
         request_id = df.request_id.squeeze()
         variable = df.variable.squeeze()
-        date = get_str_date(df.get_date.astype('datetime64[ns]').squeeze())
+        date = get_str_date(df.date.astype('datetime64[ns]').squeeze())
 
         # crucial: request_id, variable (for naming & classification)
         return {'request_id':request_id, 'variable':variable, 'date':date}
@@ -212,7 +214,9 @@ with DAG(
     # ------------------------------------------------- #
     @task(task_id="download_request")
     def download_request(ti=None):
-        """Download a completed request from api
+        """
+        Download a completed request from api
+
         [xcom_pull] 
             request_id: str, unqiue id provided by the API
             variable: str, requested climate variable
@@ -224,6 +228,8 @@ with DAG(
         date=ti.xcom_pull(key="date", task_ids="wait_request")
 
         dl_path = __download_request(request_id=request_id, variable=variable, date=date)
+        mes = f"[completed] Requested '{variable}' dated '{date}' with request_id '{request_id}' has finished!"
+        send_message(mes=mes)
         return dl_path
 
     # ------------------------------------------------- #
@@ -242,12 +248,13 @@ with DAG(
         try:
             valid = verify_grib(filepath)
         except Exception as e:
-            mes = f"[ERROR] Raised exception from verify_download, pipeline has stopped."
+            mes = f"[ERROR] Raised exception from task: verify_download, pipeline has stopped."
             send_message(mes)
             raise Exception(e)
         
         # if invalid file
         if valid is False:
+            # send error 
             mes = f"[ERROR] Download from {filepath} is corrupted."
             send_message(mes)
             # if deleting
@@ -256,6 +263,7 @@ with DAG(
                 mes = f"[critical] Invalid file from {filepath} was deleted, See config."
                 send_message(mes)
                 raise Exception("[exception] Invalid file detected and was deleted, restart DAG.")
+        
         return filepath
 
     # ------------------------------------------------- #
@@ -263,20 +271,30 @@ with DAG(
     # ------------------------------------------------- #
     @task(task_id="stage_download")
     def stage_download(ti=None):
+        # pull variables
         filepath = ti.xcom_pull(task_ids="verify_download")
+        # stage file
         dest = moveto_staged(filepath)
         return dest
-        
+
     # ------------------------------------------------- #
     # UPLOAD STAGED 
     # ------------------------------------------------- #
     @task(task_id="upload_staged")
     def upload_from_staged(ti=None):
         try:
-            path = ti.xcom_pull('check_transform')
-            upload_staged([path])
-            mes = f"[completed] Hooray! Staged file {path} was uploaded to the cloud!"
-            send_message(mes, var.get("DC_WEBHOOK"))
+            # pull variables
+            src_path = ti.xcom_pull(task_ids='stage_download')
+            dest_filepath = src_path.replace(STAGED_GRIB_DIR,"grib")
+            dest_filepath = f"extract/{dest_filepath}"
+
+            # load to bucket
+            load_to_gcs(bucket_name=EXTRACT_BUCKET, src_filepath=src_path, dest_filepath=dest_filepath)
+            
+            # send message
+            mes = f"[upload] Hooray! staged file: {dest_filepath} was uploaded to the cloud!"
+            send_message(mes)
+            logging.info(mes)    
         except Exception as e:
             raise Exception(e)
 
@@ -284,53 +302,84 @@ with DAG(
     # TRANSFORM DOWNLOAD
     # ------------------------------------------------- #
     def transform_grib(ti=None):
-        grib=ti.xcom_pull(task_ids='stage_download')
-        v = do_transformations(grib=grib)
+        filepath=ti.xcom_pull(task_ids='stage_download')
+        
+        dest = main_transform(filepath)
+        logging.info(f"[transformed] transformed '{dest.split('/')[-1]}'")
 
+
+        return dest
+    # ------------------------------------------------- #
+    # :: operator variable ::
     var_transform_grib=PythonOperator(
         task_id='transform_grib',
         python_callable=transform_grib
     )
 
-    # # ------------------------------------------------- #
-    # # CHECK TRANSFORM 
-    # # ------------------------------------------------- #
-    # @task(task_id = 'check_transform')
-    # def check_transform(ti=None):
+    # ------------------------------------------------- #
+    # CHECK TRANSFORM 
+    # ------------------------------------------------- #
+    @task(task_id = 'check_transform')
+    def check_transform(ti=None):
+        # pull variables
+        source = ti.xcom_pull(key="status", task_ids='check_request_queue')
+        request = ti.xcom_pull(task_ids=source)
         
-    #     path = ti.xcom_pull('transform_grib')
-    #     df = pd.read_csv(path)
-    #     # Perform last verifications here
-    #     if "total_precipitation" not in df.columns.tolist():
-    #         mes=f"[ERROR] columns total_precipitation not found in {path}!"
-    #         send_message(mes)
-    #         raise Exception(mes)
-    #     if check_valid_data(df) is True:
-    #         return path
+        # get filepath
+        filepath = ti.xcom_pull('transform_grib')
 
-    # # ------------------------------------------------- #
-    # # UPLOAD TRANSFORMED
-    # # ------------------------------------------------- #
-    # @task(task_id = 'upload_transformed')
-    # def upload_from_transformed(ti=None):
+        # do validation
+        try:     
+            valid = main_validate(filepath=filepath, request_dict=request)
+        except:
+            mes = f"[ERROR] Error found in validating transformed file: '{filepath}', pipeline has stopped."
+            send_message(mes)
+            raise Exception(mes)
         
-    #     try:
-    #         path = ti.xcom_pull('check_transform')
-    #         upload_transformed([path])
-    #         mes = f"[completed] Hooray! Transformed {path} was uploaded to the cloud!"
-    #     except Exception as e:
-    #         raise Exception(e)
+        # return filepath on successful validation for uploading
+        if valid is True:
+            return filepath
 
+    # ------------------------------------------------- #
+    # UPLOAD TRANSFORMED
+    # ------------------------------------------------- #
+    @task(task_id = 'upload_transformed')
+    def upload_from_transformed(ti=None):
+        try:
+            # pull variables
+            transformed_path = ti.xcom_pull('check_transform')
+            cloud_filepath = transformed_path.replace(TRANSFORMED_GRIB_DIR,"parquet")
+            cloud_filepath = f"transform/{cloud_filepath}"
+
+            req_fn = transformed_path.split('/')[-1].replace('.parquet','.csv')
+            
+            # load to bucket
+            load_to_gcs(bucket_name=TRANSFORMED_BUCKET, src_filepath=transformed_path, dest_filepath=cloud_filepath)
+            
+            # process completed requests
+            req_fn = transformed_path.split('/')[-1].replace('.parquet','.csv')
+            complete_request(req_fn)
+            
+            # cleanup
+            if CLEAN_DIRECTORIES is True:
+                delete_dirs()
+            elif DELETE_COMPLETED_DOWNLOAD is True:
+                os.remove(transformed_path)
+
+            # send message
+            mes = f"[upload] Hooray! Transformed file {cloud_filepath} was uploaded to the cloud!"
+            send_message(mes)
+        except Exception as e:
+            raise Exception(e)
 
 
     @task(task_id="test")
     def test():
-        from scripts.services import check_request_local_state
-        check_request_local_state()
+        from scripts.services import check_request_api
+        get=check_request_api()
+        print(get)
 
     # start >> create_request()
     start >> var_check_request_queue >> [create_request(), pull_request_data()] >> var_wait_request
     var_wait_request >> download_request() >> verify_download() >> stage_download() >> [var_transform_grib,upload_from_staged()] 
-    # var_transform_grib >> check_transform() >> upload_transformed()
-
-    test()
+    var_transform_grib >> check_transform() >> upload_from_transformed() >> stop()

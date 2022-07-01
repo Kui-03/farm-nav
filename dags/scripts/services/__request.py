@@ -19,10 +19,12 @@ from .__datetime import get_str_date
 from .__copernicus_client import Client_Secure
 
 from ..message import send_message
-from ..config import REQUESTS_DIR, EXTRACT_GRIB_DIR
+from ..config import REQUESTS_DIR, EXTRACT_GRIB_DIR, COMPLETED_REQUESTS_DIR
 
 import cdsapi
 import pandas as pd
+
+from datetime import datetime
 
 from .__file import mkdir, locate
 
@@ -240,6 +242,7 @@ def check_request_local() -> list:
 # ----------------------------------------------------- #
 def read_inject(filepath: str):
     df = pd.read_csv(filepath).head(1)
+    df['date']=df.date.astype('datetime64[ns]')
     df['path'] = filepath
     return df
 
@@ -256,6 +259,7 @@ def get_request_local_state(state: str='extract') -> list:
     ls_local_df = pd.concat([read_inject(i) for i in ls_local], axis=0).reset_index()
     ls_local_df = ls_local_df[ls_local_df.state==state]
     return ls_local_df.path.tolist()
+
 
 # ----------------------------------------------------- #
 # * Check api requests
@@ -300,4 +304,16 @@ def check_request_valid_ids(ls_local:list, mode:int=0) -> set:
         return ls_local_df[ls_local_df.request_id.isin(ls_valid_ids)]
 
 
-
+# ----------------------------------------------------- #
+# * Process completed requests
+# ----------------------------------------------------- #
+def complete_request(fn:str):
+    
+    src_filepath = f"{REQUESTS_DIR}/{fn}"
+    dest_filepath = f"{COMPLETED_REQUESTS_DIR}/{fn}"
+    
+    df = pd.read_csv(src_filepath)
+    df['state'] = 'completed'
+    df.to_csv(dest_filepath, index=False)
+    
+    os.remove(src_filepath)

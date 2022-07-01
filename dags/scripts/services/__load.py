@@ -16,16 +16,16 @@ __all__=["load_to_gcs", "ls_bucket"]
 # ----------------------------------------------------- #
 # * Load Object to GCS bucket
 # ----------------------------------------------------- #
-def load_to_gcs(bucket_name:str, src_path:str=None, uploaded_filename:str=None, io:any=None) -> bool:
+def load_to_gcs(bucket_name:str, src_filepath:str=None, dest_filepath:str=None, io:any=None) -> bool:
     """
     Load file/ object to GCS Bucket
     
     Params
     -----------
     bucket_name: str, bucket name
-    src_path: str, source path to file '/dir/file.f'
-    uploaded_filename: str, cloud path to destination file '/dest/' 
-    io: StringIO, data in StringIO data type
+    src_filepath: str, source path to file '/dir/file.f'
+    dest_filepath: str, cloud path to destination file '/dest/' 
+    io: StringIO, data in StringIO data type 
     
     """
     key = request_keys(key=SECRET_CLOUD_ACCESS_NAME, version = SECRET_CLOUD_ACCESS_VERSION).split(":")
@@ -39,9 +39,9 @@ def load_to_gcs(bucket_name:str, src_path:str=None, uploaded_filename:str=None, 
 
     try:
         if io is None:
-            gcs_resource.meta.client.upload_file(src_path, bucket_name, uploaded_filename)
+            gcs_resource.meta.client.upload_file(src_filepath, bucket_name, dest_filepath)
         else:
-            gcs_resource.Object(bucket_name, uploaded_filename).put(Body=io.getvalue())
+            gcs_resource.Object(bucket_name, dest_filepath).put(Body=io.getvalue())
         return True
     except Exception as e:
         raise Exception(e)

@@ -1,16 +1,4 @@
 # ===================================================== #
-#  * Ingest Copernicus Data
-# ----------------------------------------------------- #
-# 
-#    File: ingest_copernicus.py
-#    Description:
-#        Use Copernicus API to retrieve data from Copernicus database.
-#        Retrieves raw data only.
-#    Workflow:
-#        [Submit Request] -> [Write request_id to Database] 
-#        -> [Update Request] -> [Retrieve Data]
-#
-# 
 #    List of Valid Variables: 
 #
 #    'variable': [
@@ -32,22 +20,12 @@
 #                'total_precipitation', 'volumetric_soil_water_layer_1', 'volumetric_soil_water_layer_2',
 #                'volumetric_soil_water_layer_3', 'volumetric_soil_water_layer_4',
 #            ]
-#
-#
 # ===================================================== #
 
 
-
 from scripts.config import (EXTRACT_GRIB_DIR, STAGED_GRIB_DIR, 
-        TRANSFORMED_GRIB_DIR, REQUESTS_DIR, EXTRACT_BUCKET, TRANSFORMED_BUCKET,
-        GET_SCHEDULE, MONTH_DELAY)
-
-
-# BUCKET_TREE = {
-#     "extract/grib/{1}/{0}_{1}.grib"
-#     "extract/metadata/{1}/{0}_{1}.csv"
-#     "extract"/ramgo/{1}/{0}_{1}.html
-# }
+        TRANSFORMED_GRIB_DIR, REQUESTS_DIR,
+        GET_SCHEDULE, MONTH_DELAY, COMPLETED_REQUESTS_DIR)
 
 # ----------------------------------------------------- #
 # * Export Functions
@@ -69,7 +47,7 @@ from urllib.request import urlopen
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
-from scripts.services import parse_grib, get_str_date, generate_path, mkdir, submit_request
+from scripts.services import get_str_date, generate_path, mkdir, submit_request
 from scripts.services import load_to_gcs, ls_bucket
 
 import os, time, logging
@@ -79,17 +57,28 @@ from shutil import copyfile, copytree, rmtree, move
 from glob import glob
 from dateutil.relativedelta import relativedelta
 
-# # ----------------------------------------------------- #
-# # * Create Directories
-# # ----------------------------------------------------- #
-# def create_dirs():
-#     for i in [EXTRACT_GRIB_DIR, EXTRACT_META_DIR, STAGED_GRIB_DIR, STAGED_META_DIR,
-#         TRANSFORMED_GRIB_DIR, TRANSFORMED_META_DIR, REQUESTS_DIR]:
-#         try: 
-#             mkdir(i)
-#             logging.info('Successfully created directory: %s' % i)
-#         except Exception as e:
-#             raise Exception(e)
+# ----------------------------------------------------- #
+# * Create Directories
+# ----------------------------------------------------- #
+def create_dirs():
+    for i in [EXTRACT_GRIB_DIR, STAGED_GRIB_DIR,
+        TRANSFORMED_GRIB_DIR, COMPLETED_REQUESTS_DIR, REQUESTS_DIR]:
+        try: 
+            mkdir(i)
+            logging.info('Successfully created directory: %s' % i)
+        except Exception as e:
+            raise Exception(e)
+
+# ----------------------------------------------------- #
+# * Delete Directories
+# ----------------------------------------------------- #
+def delete_dirs():
+    for i in [EXTRACT_GRIB_DIR, STAGED_GRIB_DIR, TRANSFORMED_GRIB_DIR]:
+        try: 
+            rmtree(i)
+            logging.info('Deleted directory: %s' % i)
+        except Exception as e:
+            raise Exception(e)
 
 # ----------------------------------------------------- #
 # * Create Request
@@ -164,30 +153,18 @@ def write_metadata(params: dict):
     df = pd.DataFrame(data = params["request_id"], columns=["request_id"])
     df["variable"] = params["variable"]
     df["params"] = str(params)
-    df["get_date"] = datetime.now()
+    df["date"] = datetime.now()
     df['state'] = 'extract'
     
     # Save dataframe
     try:
-        # # CREATE META DATA
-        # date = get_str_date()
-        # get_path = generate_path(base_path=EXTRACT_META_DIR, variable=params["variable"], str_date=date, mode=4)
-        # # get path
-        # path = get_path["path"]
-        # fn = get_path["fn"]+".csv"
-        # dest = get_path["all"]
-        # # write data to metadata folder
-        # mkdir(path)
-        # df.to_csv(dest, index=False)
-        # logging.info("  Created metadata in %s" % path)
-
         # CREATE REQUEST DATA
         date = get_str_date()
         get_path = generate_path(base_path=EXTRACT_GRIB_DIR, variable=params["variable"], str_date=date, mode=4)
         fn = get_path["fn"]+".csv"
 
         path = f"{REQUESTS_DIR}/"
-        dest = f"{path}/{fn}.csv"
+        dest = f"{path}/{fn}"
 
         # write data to request queue folder
         mkdir(path)

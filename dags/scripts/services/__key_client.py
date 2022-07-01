@@ -14,21 +14,6 @@ from ..config import DEFAULT_PROJECT_NAME
 
 os.environ["PATH"] = "%s:%s/bin" % (os.environ["PATH"], GCLOUD_HOME)
 
-# #########################################################
-# ### DISABLE AFTERWARDS ###
-#
-# TEST = False
-#
-# if TEST is True:
-#     try:
-#         from ..config import TEST_KEY
-#         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = TEST_KEY
-#     except Exception as e:
-#         print(e)
-#     print("WARNING: 'TEST' setting from '__key_client.py' is left to 'True'!")
-# #########################################################
-
-
 # ----------------------------------------------------- #
 # * Export Functions
 # ----------------------------------------------------- #
