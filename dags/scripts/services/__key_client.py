@@ -25,12 +25,14 @@ def request_keys(key: str, version: str='latest') -> str:
     info = get_project_info()
     client = secretmanager.SecretManagerServiceClient()
     
-    if DEFAULT_PROJECT_NAME == "":
-        project_id = info["project_id"]
-    else:
-        project_id = DEFAULT_PROJECT_NAME
+    # if DEFAULT_PROJECT_NAME == "":
+    #     project_id = info["project_id"]
+    # else:
+    #     project_id = DEFAULT_PROJECT_NAME
 
-    location = f"projects/{project_id}/secrets/{key}/versions/{version}"
+    project_number = info['project_number']
+
+    location = f"projects/{project_number}/secrets/{key}/versions/{version}"
     # request = {"name": location}
 
     key = client.access_secret_version(name=location).payload.data.decode("utf-8")
