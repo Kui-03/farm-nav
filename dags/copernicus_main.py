@@ -368,9 +368,12 @@ with DAG(
 
             # send message
             mes = f"[upload] Hooray! Transformed file {cloud_filepath} was uploaded to the cloud!"
+            logging.info(mes)
             send_message(mes)
         except Exception as e:
             raise Exception(e)
+
+        return cloud_filepath
 
 
     @task(task_id="test")
