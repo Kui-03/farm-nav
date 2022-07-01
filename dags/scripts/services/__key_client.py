@@ -47,7 +47,8 @@ def get_project_info() -> dict:
 
     # Capture shell out
     project_id = capture_shell("gcloud config get-value project")
-    cmd = f'gcloud projects list --filter="{project_id}" --format="value(PROJECT_NUMBER)"'
+    cmd=f"gcloud projects list --filter='project_id:{project_id}'  --format='value(project_number)'"
+
     project_number = capture_shell(cmd)
 
     # Check 
