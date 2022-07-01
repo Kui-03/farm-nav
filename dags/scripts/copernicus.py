@@ -46,7 +46,6 @@ import re
 from urllib.request import urlopen
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-
 from scripts.services import get_str_date, generate_path, mkdir, submit_request
 from scripts.services import load_to_gcs, ls_bucket
 

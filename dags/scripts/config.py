@@ -1,15 +1,13 @@
-
 # ===================================================== #
 # * Configuration
 # ----------------------------------------------------- #
 
-
 # ----------------------------------------------------- #
 # GOOGLE SECRET SETTINGS
-# Your gcloud project name/ or project_id, 
-# from command: gcloud projects list
 # ----------------------------------------------------- #
 
+# Your gcloud project name/ or project_id, 
+# from command: gcloud projects list
 DEFAULT_PROJECT_NAME=""
 
 # Provide secret name and version from glcoud secret manager

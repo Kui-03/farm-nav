@@ -85,6 +85,9 @@ with DAG(
         [xcom_push] 
             queue: list, csv paths found
             status: str, the next function to return
+
+        Returns 
+            str, next task
         """
         # get list of requests
         ls = check_request_local() #_state('extract')
@@ -115,10 +118,12 @@ with DAG(
     # variable: climate variable
     # ------------------------------------------------- #
     @task(task_id='create_request')
-    def create_request(ti=None):
-        return True
+    def create_request():
         """
         Creates and submits data pull request via Copernicus API
+
+        Returns
+            dict, containing request_id, variable, date
         """
         variable='soil_temperature_level_2'
 
@@ -142,7 +147,8 @@ with DAG(
         [xcom_pull]
             check_request_queue[queue]: list, list of csv paths found in **/request directory
         
-        return: dict, request_id, variable, date
+        Returns
+            dict, containing request_id, variable, date
         """
         ls = ti.xcom_pull(key="queue", task_ids='check_request_queue')
         df_valid = check_request_valid_ids(ls, mode=1)
@@ -161,7 +167,7 @@ with DAG(
     # ------------------------------------------------- #
     def wait_request(ti=None) -> bool:
         """
-        Waits for a request to complete
+        Waits for a request to complete.
         
         [xcom_pull]
             check_request_queue[status]: str, returned task from check_request_queue
@@ -170,13 +176,15 @@ with DAG(
         [xcom_push]
             request_id: str, unqiue id provided by the API
             variable: str, requested climate variable
+            date: str, date request created
         
         [vars]
             source: str, returned task name decided in the branch operator to use for pulling 
                     other params
             request: dict, contains request_id, variable params
 
-        return: bool, if request is completed
+        Returns
+            bool, if request is completed
         """
         source = ti.xcom_pull(key="status", task_ids='check_request_queue')
         request = ti.xcom_pull(task_ids=source)
@@ -213,7 +221,7 @@ with DAG(
     # DOWNLOAD REQUEST
     # ------------------------------------------------- #
     @task(task_id="download_request")
-    def download_request(ti=None):
+    def download_request(ti=None) -> str:
         """
         Download a completed request from api
 
@@ -221,7 +229,8 @@ with DAG(
             request_id: str, unqiue id provided by the API
             variable: str, requested climate variable
         
-        return: str, path to downloaded file
+        Returns
+            str, path to downloaded file
         """
         request_id=ti.xcom_pull(key="request_id", task_ids="wait_request")
         variable=ti.xcom_pull(key="variable", task_ids="wait_request")
@@ -236,12 +245,13 @@ with DAG(
     # VERIFY DOWNLOAD
     # ------------------------------------------------- #
     @task(task_id="verify_download")
-    def verify_download(ti=None):
+    def verify_download(ti=None) -> str:
         """Checks whether download is corrupted
         [xcom_pull]
-            str, download path
+            from download_request: str, download path
         
-        return: str, path to downloaded file
+        Returns
+            str, path to downloaded file
         """
         filepath = ti.xcom_pull(task_ids="download_request") 
         
@@ -270,7 +280,16 @@ with DAG(
     # STAGE DOWNLOAD
     # ------------------------------------------------- #
     @task(task_id="stage_download")
-    def stage_download(ti=None):
+    def stage_download(ti=None) -> str:
+        """
+        Moves a downloaded file to staged directory, for transformation and uploading.
+        
+        [xcom_pull]
+            str, filepath, from verify_download
+
+        Returns
+            str, path to staged file
+        """
         # pull variables
         filepath = ti.xcom_pull(task_ids="verify_download")
         # stage file
@@ -281,7 +300,16 @@ with DAG(
     # UPLOAD STAGED 
     # ------------------------------------------------- #
     @task(task_id="upload_staged")
-    def upload_from_staged(ti=None):
+    def upload_from_staged(ti=None) -> bool:
+        """
+        Uploads the staged (raw) data to the cloud. Sends a message on completion.
+        
+        [xcom_pull]
+            str, path to staged file, from stage_download
+
+        Returns 
+            True, on successful upload
+        """
         try:
             # pull variables
             src_path = ti.xcom_pull(task_ids='stage_download')
@@ -294,19 +322,29 @@ with DAG(
             # send message
             mes = f"[upload] Hooray! staged file: {dest_filepath} was uploaded to the cloud!"
             send_message(mes)
-            logging.info(mes)    
+            logging.info(mes)
+
+            return True
         except Exception as e:
             raise Exception(e)
 
     # ------------------------------------------------- #
     # TRANSFORM DOWNLOAD
     # ------------------------------------------------- #
-    def transform_grib(ti=None):
+    def transform_grib(ti=None) -> str:
+        """
+        Performs necessary transformations to the downloaded grib file to dataframe, exports in compressed parquet format.
+
+        [xcom_pull]
+            str, staged filepath, from stage_download
+
+        Returns
+            str, path to transformed file
+        """
         filepath=ti.xcom_pull(task_ids='stage_download')
         
         dest = main_transform(filepath)
         logging.info(f"[transformed] transformed '{dest.split('/')[-1]}'")
-
 
         return dest
     # ------------------------------------------------- #
@@ -321,6 +359,18 @@ with DAG(
     # ------------------------------------------------- #
     @task(task_id = 'check_transform')
     def check_transform(ti=None):
+        """
+        Validates transformed data
+
+        [xcom_pull]
+            check_request_queue[status]: str, returned task, from check_request_queue
+            request: dict, dict containing request_id, variable, returned from either branch
+
+            str, path to transformed file, from transform_grib
+        
+        Returns
+            str, path to transformed file
+        """
         # pull variables
         source = ti.xcom_pull(key="status", task_ids='check_request_queue')
         request = ti.xcom_pull(task_ids=source)
@@ -345,13 +395,29 @@ with DAG(
     # ------------------------------------------------- #
     @task(task_id = 'upload_transformed')
     def upload_from_transformed(ti=None):
-        try:
-            # pull variables
-            transformed_path = ti.xcom_pull('check_transform')
-            cloud_filepath = transformed_path.replace(TRANSFORMED_GRIB_DIR,"parquet")
-            cloud_filepath = f"transform/{cloud_filepath}"
+        """
+        Uploads transformed file to google cloud storage bucket.
 
-            req_fn = transformed_path.split('/')[-1].replace('.parquet','.csv')
+        [xcom_pull]
+            str, path to transformed file, from check_transform
+            variable: str, climate variable, from wait request
+
+        Returns
+            str, google storage path to file
+        """
+        try:
+            # pull path to transformed file
+            transformed_path = ti.xcom_pull('check_transform')
+
+            # parquet filename
+            fn = transformed_path.split('/')[-1]
+            # request csv name
+            req_fn = fn.replace('.parquet','.csv')
+
+            # get variable from wait_request (should not conflict)
+            variable=ti.xcom_pull(key="variable", task_ids="wait_request")
+            # cloud filepath
+            cloud_filepath = f"transform/parquet/{variable}/{fn}"
             
             # load to bucket
             load_to_gcs(bucket_name=TRANSFORMED_BUCKET, src_filepath=transformed_path, dest_filepath=cloud_filepath)

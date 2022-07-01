@@ -2,10 +2,7 @@
 # * Contains all transformation functions
 # ----------------------------------------------------- #
 # 
-# 
-# 
-# 
-# 
+#   Place all functions inside transform_pipeline()
 #
 # ===================================================== #
 
@@ -20,9 +17,10 @@ from .config import STAGED_GRIB_DIR, TRANSFORMED_GRIB_DIR
 
 import re
 
-
+# ----------------------------------------------------- #
+# * Renamed column names
+# ----------------------------------------------------- #
 RENAME_COLS = {'tp': 'total_precipitation'}
-
 
 # ----------------------------------------------------- #
 # * Check valid requests by id matching
