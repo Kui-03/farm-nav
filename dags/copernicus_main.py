@@ -417,7 +417,7 @@ with DAG(
             # get variable from wait_request (should not conflict)
             variable=ti.xcom_pull(key="variable", task_ids="wait_request")
             # cloud filepath
-            cloud_filepath = f"transform/parquet/{variable}/{fn}"
+            cloud_filepath = f"transform/parquet/{variable}/{fn}" 
             
             # load to bucket
             load_to_gcs(bucket_name=TRANSFORMED_BUCKET, src_filepath=transformed_path, dest_filepath=cloud_filepath)
