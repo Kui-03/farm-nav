@@ -1,6 +1,6 @@
 # farm-nav_copernicus-data-builder
 
-This repo contains an example DAG that pulls climate data via CDS API, performs necessary transformations, then performs validations before loading it to google cloud storage buckets. 
+This repo contains an example DAG that pulls climate data via CDS API, then performs the necessary transformations, and validations before loading it to google cloud storage buckets. 
  
 ### Use Case
 The example highlights the concept of using an EL-T approach via Airflow DAG.
